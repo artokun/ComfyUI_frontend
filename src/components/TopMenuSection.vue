@@ -105,6 +105,7 @@
               variant="secondary"
               :aria-label="t('actionbar.shareTooltip')"
               @click="openShareDialog"
+              @pointerenter="prefetchShareDialog"
             >
               <span class="not-md:hidden">
                 {{ t('actionbar.share') }}
@@ -319,9 +320,16 @@ const handleClearQueue = async () => {
   executionStore.clearInitializationByJobIds(pendingJobIds)
 }
 
-const openShareDialog = async () => {
-  const { useShareDialog } =
-    await import('@/platform/workflow/sharing/composables/useShareDialog')
+function importShareDialog() {
+  return import('@/platform/workflow/sharing/composables/useShareDialog')
+}
+
+function prefetchShareDialog() {
+  importShareDialog()
+}
+
+async function openShareDialog() {
+  const { useShareDialog } = await importShareDialog()
   useShareDialog().show()
 }
 
