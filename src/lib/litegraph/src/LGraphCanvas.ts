@@ -560,6 +560,7 @@ export class LGraphCanvas implements CustomEventDispatcher<LGraphCanvasEventMap>
   allow_dragnodes: boolean
   allow_interaction: boolean
   multi_select: boolean
+  groupSelectChildren: boolean
   allow_searchbox: boolean
   allow_reconnect_links: boolean
   align_to_grid: boolean
@@ -928,6 +929,7 @@ export class LGraphCanvas implements CustomEventDispatcher<LGraphCanvasEventMap>
     this.allow_interaction = true
     // allow selecting multi nodes without pressing extra keys
     this.multi_select = false
+    this.groupSelectChildren = false
     this.allow_searchbox = true
     // allows to change a connection with having to redo it again
     this.allow_reconnect_links = true
@@ -4414,6 +4416,11 @@ export class LGraphCanvas implements CustomEventDispatcher<LGraphCanvasEventMap>
 
     if (item instanceof LGraphGroup) {
       item.recomputeInsideNodes()
+      if (this.groupSelectChildren) {
+        for (const child of item._children) {
+          this.select(child)
+        }
+      }
       return
     }
 
@@ -4452,6 +4459,14 @@ export class LGraphCanvas implements CustomEventDispatcher<LGraphCanvasEventMap>
     item.selected = false
     this.selectedItems.delete(item)
     this.state.selectionChanged = true
+
+    if (item instanceof LGraphGroup && this.groupSelectChildren) {
+      for (const child of item._children) {
+        this.deselect(child)
+      }
+      return
+    }
+
     if (!(item instanceof LGraphNode)) return
 
     // Node-specific handling
