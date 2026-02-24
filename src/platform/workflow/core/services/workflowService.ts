@@ -356,6 +356,7 @@ export const useWorkflowService = () => {
     workflowData: ComfyWorkflowJSON
   ) => {
     const workflowStore = useWorkspaceStore().workflow
+
     if (
       workflowData.extra?.linearMode !== undefined ||
       !workflowData.nodes.length
@@ -373,10 +374,17 @@ export const useWorkflowService = () => {
         const fullPath = ComfyWorkflow.basePath + appendJsonExt(path)
         const existingWorkflow = workflowStore.getWorkflowByPath(fullPath)
 
-        // If the workflow exists and is NOT loaded yet (restoration case),
-        // use the existing workflow instead of creating a new one.
-        // If it IS loaded, this is a re-import case - create new with suffix.
-        if (existingWorkflow?.isPersisted && !existingWorkflow.isLoaded) {
+        // Reuse an existing workflow when this is a restoration case
+        // (persisted but currently unloaded) or an idempotent repeated load
+        // of the currently active same-path workflow.
+        //
+        // This prevents accidental duplicate tabs when startup/load flows
+        // invoke loadGraphData more than once for the same workflow name.
+        if (
+          existingWorkflow &&
+          ((existingWorkflow.isPersisted && !existingWorkflow.isLoaded) ||
+            workflowStore.isActive(existingWorkflow))
+        ) {
           const loadedWorkflow =
             await workflowStore.openWorkflow(existingWorkflow)
           loadedWorkflow.changeTracker.reset(workflowData)

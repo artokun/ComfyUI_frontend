@@ -9,10 +9,18 @@ import { useWorkflowStore } from '@/platform/workflow/management/stores/workflow
 import { useWorkflowService } from '@/platform/workflow/core/services/workflowService'
 import { app } from '@/scripts/app'
 
-const { mockShowMissingNodes, mockShowMissingModels } = vi.hoisted(() => ({
-  mockShowMissingNodes: vi.fn(),
-  mockShowMissingModels: vi.fn()
-}))
+const { mockShowMissingNodes, mockShowMissingModels, mockWorkspaceWorkflow } =
+  vi.hoisted(() => ({
+    mockShowMissingNodes: vi.fn(),
+    mockShowMissingModels: vi.fn(),
+    mockWorkspaceWorkflow: {
+      activeWorkflow: null,
+      getWorkflowByPath: vi.fn(),
+      isActive: vi.fn(),
+      openWorkflow: vi.fn(),
+      createNewTemporary: vi.fn()
+    }
+  }))
 
 vi.mock('@/composables/useMissingNodesDialog', () => ({
   useMissingNodesDialog: () => ({ show: mockShowMissingNodes, hide: vi.fn() })
@@ -72,6 +80,10 @@ vi.mock('@/stores/domWidgetStore', () => ({
   })
 }))
 
+vi.mock('@/stores/workspaceStore', () => ({
+  useWorkspaceStore: () => ({ workflow: mockWorkspaceWorkflow })
+}))
+
 const MISSING_MODELS: PendingWarnings['missingModels'] = {
   missingModels: [
     { name: 'model.safetensors', url: '', directory: 'checkpoints' }
@@ -108,6 +120,7 @@ describe('useWorkflowService', () => {
   beforeEach(() => {
     setActivePinia(createTestingPinia({ stubActions: false }))
     vi.clearAllMocks()
+    mockWorkspaceWorkflow.activeWorkflow = null
   })
 
   describe('showPendingWarnings', () => {
@@ -254,6 +267,44 @@ describe('useWorkflowService', () => {
 
       await service.openWorkflow(workflow, { force: true })
       expect(mockShowMissingNodes).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('afterLoadNewGraph', () => {
+    it('should reuse the active workflow when loading the same path repeatedly', async () => {
+      const reset = vi.fn()
+      const restore = vi.fn()
+      const existingWorkflow = {
+        path: 'workflows/repeat.json',
+        isPersisted: true,
+        isLoaded: true,
+        changeTracker: {
+          reset,
+          restore
+        }
+      } as unknown as ComfyWorkflow
+
+      const workflowStoreMock = {
+        getWorkflowByPath: vi.fn(() => existingWorkflow),
+        isActive: vi.fn(() => true),
+        openWorkflow: vi.fn(async () => existingWorkflow),
+        createNewTemporary: vi.fn()
+      }
+      Object.assign(mockWorkspaceWorkflow, workflowStoreMock)
+
+      await useWorkflowService().afterLoadNewGraph('repeat', {
+        nodes: [{ id: 1, type: 'TestNode', pos: [0, 0], size: [100, 100] }]
+      } as never)
+
+      expect(workflowStoreMock.getWorkflowByPath).toHaveBeenCalledWith(
+        'workflows/repeat.json'
+      )
+      expect(workflowStoreMock.openWorkflow).toHaveBeenCalledWith(
+        existingWorkflow
+      )
+      expect(reset).toHaveBeenCalled()
+      expect(restore).toHaveBeenCalled()
+      expect(workflowStoreMock.createNewTemporary).not.toHaveBeenCalled()
     })
   })
 })
