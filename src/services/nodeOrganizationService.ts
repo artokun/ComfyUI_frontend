@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import type { ComfyNodeDefImpl } from '@/stores/nodeDefStore'
 import { buildNodeDefTree } from '@/stores/nodeDefStore'
 import type {
@@ -319,7 +320,7 @@ class NodeOrganizationService {
       )
       children.push({
         key: 'root/my-blueprints',
-        label: 'My Blueprints',
+        label: t('sideToolbar.nodeLibraryTab.sections.myBlueprints'),
         children: tree.children
       })
     }
@@ -329,7 +330,7 @@ class NodeOrganizationService {
       )
       children.push({
         key: 'root/comfy-blueprints',
-        label: 'Comfy Blueprints',
+        label: t('sideToolbar.nodeLibraryTab.sections.comfyBlueprints'),
         children: tree.children
       })
     }
