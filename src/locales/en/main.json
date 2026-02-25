@@ -3407,5 +3407,6 @@
     "saveSuccessAppPrompt": "Would you like to view it now?",
     "saveSuccessGraphMessage": "'{name}' has been saved. It will open as a node graph by default.",
     "viewApp": "View app"
-  }
+  },
+  "comfyHubPublish.tagsPlaceholder": "e.g #nanobanana, #anime or #faceswap"
 }
