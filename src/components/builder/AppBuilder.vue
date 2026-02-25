@@ -23,6 +23,7 @@ import { app } from '@/scripts/app'
 import { DOMWidgetImpl } from '@/scripts/domWidget'
 import { useDialogService } from '@/services/dialogService'
 import { useAppModeStore } from '@/stores/appModeStore'
+import { getNodeByLocatorId } from '@/utils/graphTraversalUtil'
 import { cn } from '@/utils/tailwindUtil'
 
 type BoundStyle = { top: string; left: string; width: string; height: string }
@@ -41,7 +42,7 @@ workflowStore.activeWorkflow?.changeTracker?.reset()
 
 const inputsWithState = computed(() =>
   appModeStore.selectedInputs.map(([nodeId, widgetName]) => {
-    const node = app.rootGraph.getNodeById(nodeId)
+    const node = getNodeByLocatorId(app.rootGraph, String(nodeId))
     const widget = node?.widgets?.find((w) => w.name === widgetName)
     if (!node || !widget) return { nodeId, widgetName }
 
@@ -270,7 +271,7 @@ const renderedInputs = computed<[string, MaybeRef<BoundStyle> | undefined][]>(
     </DraggableList>
   </PropertiesAccordionItem>
 
-  <Teleport to="body">
+  <Teleport v-if="!settingStore.get('Comfy.VueNodes.Enabled')" to="body">
     <div
       :class="
         cn(
@@ -304,13 +305,19 @@ const renderedInputs = computed<[string, MaybeRef<BoundStyle> | undefined][]>(
           <div class="absolute top-0 right-0 size-8">
             <div
               v-if="isSelected"
-              class="absolute -top-1/2 -right-1/2 size-full p-2 bg-warning-background rounded-lg"
+              class="absolute -top-1/2 -right-1/2 size-full p-2 bg-warning-background rounded-lg cursor-pointer pointer-events-auto"
+              @click.stop="
+                remove(appModeStore.selectedOutputs, (k) => k === key)
+              "
+              @pointerdown.stop
             >
               <i class="icon-[lucide--check] bg-text-foreground size-full" />
             </div>
             <div
               v-else
-              class="absolute -top-1/2 -right-1/2 size-full ring-warning-background/50 ring-4 ring-inset bg-component-node-background rounded-lg"
+              class="absolute -top-1/2 -right-1/2 size-full ring-warning-background/50 ring-4 ring-inset bg-component-node-background rounded-lg cursor-pointer pointer-events-auto"
+              @click.stop="appModeStore.selectedOutputs.push(key)"
+              @pointerdown.stop
             />
           </div>
         </div>
