@@ -134,23 +134,37 @@ function onBranchSelectorCreated(this: LGraphNode) {
   // Track selection by stable input index, not by mutable label
   let selectedInputIndex = -1
 
-  function getConnectedInputs(): { label: string; index: number }[] {
+  function getConnectedInputs(): {
+    label: string
+    index: number
+    name: string
+  }[] {
     return node.inputs
       .slice(0, -1)
       .map((inp, i) => ({
         label: inp.label ?? inp.localized_name ?? inp.name,
         index: i,
+        name: inp.name,
         connected: inp.link != null
       }))
       .filter((inp) => inp.connected)
   }
 
-  function getConnectedLabels(): string[] {
-    return getConnectedInputs().map((inp) => inp.label)
+  // Disambiguate duplicate labels by appending slot name
+  function buildDisplayValues(
+    connected: ReturnType<typeof getConnectedInputs>
+  ): string[] {
+    const seen = new Map<string, number>()
+    return connected.map((inp) => {
+      const count = (seen.get(inp.label) ?? 0) + 1
+      seen.set(inp.label, count)
+      return count > 1 ? `${inp.label} (${inp.name})` : inp.label
+    })
   }
 
   function refreshBranchValues() {
-    const next = getConnectedLabels()
+    const connected = getConnectedInputs()
+    const next = buildDisplayValues(connected)
     values.splice(0, values.length, ...next)
   }
 
@@ -162,15 +176,17 @@ function onBranchSelectorCreated(this: LGraphNode) {
   const origCallback = comboWidget.callback
   comboWidget.callback = (v: string) => {
     const connected = getConnectedInputs()
-    const match = connected.find((inp) => inp.label === v)
-    if (match) selectedInputIndex = match.index
+    const displayValues = buildDisplayValues(connected)
+    const displayIdx = displayValues.indexOf(v)
+    if (displayIdx >= 0) selectedInputIndex = connected[displayIdx].index
     origCallback?.(v)
   }
 
   // Live getter so Vue dropdowns always read fresh labels
   Object.defineProperty(comboWidget.options, 'values', {
     get: () => {
-      const live = getConnectedLabels()
+      const connected = getConnectedInputs()
+      const live = buildDisplayValues(connected)
       if (
         live.length !== values.length ||
         live.some((v, i) => v !== values[i])
@@ -185,15 +201,19 @@ function onBranchSelectorCreated(this: LGraphNode) {
 
   function syncComboSelection() {
     if (app.configuringGraph) return
-    refreshBranchValues()
-    // Restore selection by stable index, then fall back to first
     const connected = getConnectedInputs()
-    const byIndex = connected.find((inp) => inp.index === selectedInputIndex)
-    if (byIndex && values.includes(byIndex.label)) {
-      comboWidget.value = byIndex.label
+    const displayValues = buildDisplayValues(connected)
+    values.splice(0, values.length, ...displayValues)
+
+    // Restore selection by stable index
+    const connIdx = connected.findIndex(
+      (inp) => inp.index === selectedInputIndex
+    )
+    if (connIdx >= 0) {
+      comboWidget.value = displayValues[connIdx]
       return
     }
-    comboWidget.value = values[0] ?? ''
+    comboWidget.value = displayValues[0] ?? ''
     if (connected.length > 0) selectedInputIndex = connected[0].index
     comboWidget.callback?.(comboWidget.value)
   }
@@ -210,35 +230,36 @@ function onBranchSelectorCreated(this: LGraphNode) {
     requestAnimationFrame(() => syncComboSelection())
   )
 
-  // Restore renamed labels after configure (autogrow recreates inputs fresh)
+  // Restore renamed labels and hydrate selectedInputIndex after configure
   this.onConfigure = useChainCallback(
     this.onConfigure,
-    (data: { inputs?: Array<{ label?: string; name: string }> }) => {
-      if (!data?.inputs) return
-      for (const serializedInput of data.inputs) {
-        if (!serializedInput.label) continue
-        const match = node.inputs.find(
-          (inp) => inp.name === serializedInput.name
-        )
-        if (match) match.label = serializedInput.label
+    (data: {
+      inputs?: Array<{ label?: string; name: string }>
+      widgets_values?: unknown[]
+    }) => {
+      if (data?.inputs) {
+        for (const serializedInput of data.inputs) {
+          if (!serializedInput.label) continue
+          const match = node.inputs.find(
+            (inp) => inp.name === serializedInput.name
+          )
+          if (match) match.label = serializedInput.label
+        }
       }
       refreshBranchValues()
+
+      // Hydrate selectedInputIndex from restored comboWidget.value
+      const connected = getConnectedInputs()
+      const displayValues = buildDisplayValues(connected)
+      const restoredIdx = displayValues.indexOf(`${comboWidget.value}`)
+      if (restoredIdx >= 0) {
+        selectedInputIndex = connected[restoredIdx].index
+      }
     }
   )
 
-  // [P2 fix] Extend default slot menu instead of replacing it
-  this.getSlotMenuOptions = (slot) => {
-    const menu: { content: string; slot: typeof slot }[] = []
-    if (slot.input) {
-      if (slot.input.link != null) {
-        menu.push({ content: 'Disconnect Links', slot })
-      }
-      if (!slot.input.nameLocked) {
-        menu.push({ content: 'Rename Slot', slot })
-      }
-    }
-    return menu
-  }
+  // No getSlotMenuOptions override — default LiteGraph menu already
+  // provides Disconnect/Rename/Remove for autogrow inputs.
 
   refreshBranchValues()
 }
