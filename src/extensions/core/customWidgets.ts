@@ -227,20 +227,24 @@ function onBranchSelectorCreated(this: LGraphNode) {
 
   function updateOutputLabel() {
     const output = node.outputs[0]
-    if (output) {
-      const typeName = String(output.type ?? '*')
-      output.label = typeName === '*' ? 'ANY' : typeName
-    }
+    if (!output) return
+    const typeName = String(output.type ?? '*')
+    output.label = typeName === '*' ? 'ANY' : typeName
+    // Trigger Vue reactivity for the output slot so dot color re-renders
+    node.graph?.trigger('node:slot-label:changed', {
+      nodeId: node.id,
+      slotType: 2 // NodeSlotType.OUTPUT
+    })
     app.canvas?.setDirty(true, true)
   }
 
   // Refresh on connection changes (add/remove inputs)
-  this.onConnectionsChange = useChainCallback(this.onConnectionsChange, () =>
-    requestAnimationFrame(() => {
-      syncComboSelection()
-      updateOutputLabel()
-    })
-  )
+  // MatchType handler runs first in the chain and sets output.type,
+  // so we can read it synchronously here.
+  this.onConnectionsChange = useChainCallback(this.onConnectionsChange, () => {
+    syncComboSelection()
+    updateOutputLabel()
+  })
 
   // Restore renamed labels and hydrate selectedInputIndex after configure
   this.onConfigure = useChainCallback(
