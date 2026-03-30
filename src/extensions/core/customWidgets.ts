@@ -131,6 +131,9 @@ function onBranchSelectorCreated(this: LGraphNode) {
   const values = shallowReactive<string[]>([])
   const node = this
 
+  // Track selection by stable input index, not by mutable label
+  let selectedInputIndex = -1
+
   function getConnectedInputs(): { label: string; index: number }[] {
     return node.inputs
       .slice(0, -1)
@@ -155,7 +158,16 @@ function onBranchSelectorCreated(this: LGraphNode) {
     values
   })
 
-  // Also expose values as a live getter so Vue dropdowns always read fresh
+  // Track the selected input index when combo value changes
+  const origCallback = comboWidget.callback
+  comboWidget.callback = (v: string) => {
+    const connected = getConnectedInputs()
+    const match = connected.find((inp) => inp.label === v)
+    if (match) selectedInputIndex = match.index
+    origCallback?.(v)
+  }
+
+  // Live getter so Vue dropdowns always read fresh labels
   Object.defineProperty(comboWidget.options, 'values', {
     get: () => {
       const live = getConnectedLabels()
@@ -174,14 +186,22 @@ function onBranchSelectorCreated(this: LGraphNode) {
   function syncComboSelection() {
     if (app.configuringGraph) return
     refreshBranchValues()
-    if (values.includes(`${comboWidget.value}`)) return
+    // Restore selection by stable index, then fall back to first
+    const connected = getConnectedInputs()
+    const byIndex = connected.find((inp) => inp.index === selectedInputIndex)
+    if (byIndex && values.includes(byIndex.label)) {
+      comboWidget.value = byIndex.label
+      return
+    }
     comboWidget.value = values[0] ?? ''
+    if (connected.length > 0) selectedInputIndex = connected[0].index
     comboWidget.callback?.(comboWidget.value)
   }
 
+  // Serialize by stable index within connected inputs
   comboWidget.serializeValue = () => {
     const connected = getConnectedInputs()
-    const idx = connected.findIndex((inp) => inp.label === comboWidget.value)
+    const idx = connected.findIndex((inp) => inp.index === selectedInputIndex)
     return idx >= 0 ? idx : 0
   }
 
@@ -206,11 +226,16 @@ function onBranchSelectorCreated(this: LGraphNode) {
     }
   )
 
-  // Allow renaming autogrow input slots via context menu
+  // [P2 fix] Extend default slot menu instead of replacing it
   this.getSlotMenuOptions = (slot) => {
     const menu: { content: string; slot: typeof slot }[] = []
     if (slot.input) {
-      menu.push({ content: 'Rename Slot', slot })
+      if (slot.input.link != null) {
+        menu.push({ content: 'Disconnect Links', slot })
+      }
+      if (!slot.input.nameLocked) {
+        menu.push({ content: 'Rename Slot', slot })
+      }
     }
     return menu
   }

@@ -73,6 +73,7 @@ import {
   onErrorCaptured,
   onMounted,
   ref,
+  watch,
   watchEffect
 } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
@@ -109,6 +110,13 @@ const props = defineProps<InputSlotProps>()
 const { t } = useI18n()
 
 const labelOverride = ref<string | null>(null)
+// Clear override when the underlying slot label changes externally
+watch(
+  () => props.slotData.label,
+  () => {
+    labelOverride.value = null
+  }
+)
 const displayLabel = computed(
   () =>
     labelOverride.value ||
@@ -192,14 +200,16 @@ function handleRenameEdit(newLabel: string) {
 
   const node = app.canvas?.graph?.getNodeById(props.nodeId ?? '')
   const slot = node?.inputs?.[props.index]
-  if (!slot) return
+  if (!slot || !node?.graph) return
 
+  node.graph.beforeChange()
   slot.label = trimmed
   labelOverride.value = trimmed
-  node?.graph?.trigger('node:slot-label:changed', {
+  node.graph.trigger('node:slot-label:changed', {
     nodeId: node.id,
     slotType: NodeSlotType.INPUT
   })
+  node.graph.afterChange()
   app.canvas?.setDirty(true, true)
 }
 
