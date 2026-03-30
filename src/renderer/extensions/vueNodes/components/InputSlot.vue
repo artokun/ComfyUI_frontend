@@ -47,37 +47,14 @@
       />
     </div>
 
-    <!-- Slot context menu -->
-    <Teleport to="body">
-      <div
-        v-if="showMenu"
-        ref="menuRef"
-        class="fixed z-50 min-w-40 rounded bg-[#2e2e2e] p-0.5 shadow-[0_0_10px_black]"
-        :style="{ left: menuPos.x + 'px', top: menuPos.y + 'px' }"
-        @click.stop
-        @contextmenu.stop.prevent
-      >
-        <button
-          class="flex w-full items-center px-3 py-1.5 text-base text-white hover:bg-white/10"
-          @click="handleMenuRename"
-        >
-          {{ t('g.rename') }}
-        </button>
-      </div>
-    </Teleport>
+    <!-- Slot context menu (reuses PrimeVue ContextMenu for consistency) -->
+    <ContextMenu ref="slotContextMenu" :model="slotMenuItems" />
   </div>
 </template>
 
 <script setup lang="ts">
-import {
-  computed,
-  onBeforeUnmount,
-  onErrorCaptured,
-  onMounted,
-  ref,
-  watch,
-  watchEffect
-} from 'vue'
+import ContextMenu from 'primevue/contextmenu'
+import { computed, onErrorCaptured, ref, watch, watchEffect } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 
 import { useI18n } from 'vue-i18n'
@@ -216,53 +193,16 @@ function handleRenameEdit(newLabel: string) {
 }
 
 // ── Context menu ──────────────────────────────────────────────
-const showMenu = ref(false)
-const menuPos = ref({ x: 0, y: 0 })
-const menuRef = ref<HTMLElement | null>(null)
-
-// Global close: only one slot menu can be open at a time
-const CLOSE_EVENT = 'slot-menu:close'
-
-function closeMenu() {
-  showMenu.value = false
-}
+const slotContextMenu = ref<InstanceType<typeof ContextMenu> | null>(null)
+const slotMenuItems = computed(() => [
+  {
+    label: t('g.rename'),
+    command: () => startRename()
+  }
+])
 
 function showSlotMenu(event: MouseEvent) {
   if (props.slotData.nameLocked) return
-  // Close any other open slot menu first
-  document.dispatchEvent(new CustomEvent(CLOSE_EVENT))
-  // Position near the connection dot, not at mouse cursor
-  const dot = connectionDotRef.value?.$el as HTMLElement | undefined
-  if (dot) {
-    const rect = dot.getBoundingClientRect()
-    menuPos.value = { x: rect.right + 4, y: rect.top }
-  } else {
-    menuPos.value = { x: event.clientX, y: event.clientY }
-  }
-  showMenu.value = true
+  slotContextMenu.value?.show(event)
 }
-
-function handleMenuRename() {
-  showMenu.value = false
-  startRename()
-}
-
-function handleClickOutside(event: MouseEvent) {
-  if (
-    showMenu.value &&
-    menuRef.value &&
-    !menuRef.value.contains(event.target as Node)
-  ) {
-    showMenu.value = false
-  }
-}
-
-onMounted(() => {
-  document.addEventListener('click', handleClickOutside)
-  document.addEventListener(CLOSE_EVENT, closeMenu)
-})
-onBeforeUnmount(() => {
-  document.removeEventListener('click', handleClickOutside)
-  document.removeEventListener(CLOSE_EVENT, closeMenu)
-})
 </script>
