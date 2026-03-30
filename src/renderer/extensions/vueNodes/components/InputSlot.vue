@@ -52,13 +52,13 @@
       <div
         v-if="showMenu"
         ref="menuRef"
-        class="border-border bg-popover fixed z-50 min-w-32 rounded-md border p-1 shadow-md"
+        class="fixed z-50 min-w-40 rounded bg-[#2e2e2e] p-0.5 shadow-[0_0_10px_black]"
         :style="{ left: menuPos.x + 'px', top: menuPos.y + 'px' }"
         @click.stop
         @contextmenu.stop.prevent
       >
         <button
-          class="text-popover-foreground hover:bg-accent flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-sm"
+          class="flex w-full items-center px-3 py-1.5 text-base text-white hover:bg-white/10"
           @click="handleMenuRename"
         >
           {{ t('g.rename') }}
