@@ -48,21 +48,23 @@
     </div>
 
     <!-- Slot context menu -->
-    <div
-      v-if="showMenu"
-      ref="menuRef"
-      class="border-border bg-popover fixed z-50 min-w-32 rounded-md border p-1 shadow-md"
-      :style="{ left: menuPos.x + 'px', top: menuPos.y + 'px' }"
-      @click.stop
-      @contextmenu.stop.prevent
-    >
-      <button
-        class="text-popover-foreground hover:bg-accent flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-sm"
-        @click="handleMenuRename"
+    <Teleport to="body">
+      <div
+        v-if="showMenu"
+        ref="menuRef"
+        class="border-border bg-popover fixed z-50 min-w-32 rounded-md border p-1 shadow-md"
+        :style="{ left: menuPos.x + 'px', top: menuPos.y + 'px' }"
+        @click.stop
+        @contextmenu.stop.prevent
       >
-        {{ t('g.rename') }}
-      </button>
-    </div>
+        <button
+          class="text-popover-foreground hover:bg-accent flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-sm"
+          @click="handleMenuRename"
+        >
+          {{ t('g.rename') }}
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -218,9 +220,25 @@ const showMenu = ref(false)
 const menuPos = ref({ x: 0, y: 0 })
 const menuRef = ref<HTMLElement | null>(null)
 
+// Global close: only one slot menu can be open at a time
+const CLOSE_EVENT = 'slot-menu:close'
+
+function closeMenu() {
+  showMenu.value = false
+}
+
 function showSlotMenu(event: MouseEvent) {
   if (props.slotData.nameLocked) return
-  menuPos.value = { x: event.clientX, y: event.clientY }
+  // Close any other open slot menu first
+  document.dispatchEvent(new CustomEvent(CLOSE_EVENT))
+  // Position near the connection dot, not at mouse cursor
+  const dot = connectionDotRef.value?.$el as HTMLElement | undefined
+  if (dot) {
+    const rect = dot.getBoundingClientRect()
+    menuPos.value = { x: rect.right + 4, y: rect.top }
+  } else {
+    menuPos.value = { x: event.clientX, y: event.clientY }
+  }
   showMenu.value = true
 }
 
@@ -230,11 +248,21 @@ function handleMenuRename() {
 }
 
 function handleClickOutside(event: MouseEvent) {
-  if (menuRef.value && !menuRef.value.contains(event.target as Node)) {
+  if (
+    showMenu.value &&
+    menuRef.value &&
+    !menuRef.value.contains(event.target as Node)
+  ) {
     showMenu.value = false
   }
 }
 
-onMounted(() => document.addEventListener('click', handleClickOutside))
-onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside)
+  document.addEventListener(CLOSE_EVENT, closeMenu)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener(CLOSE_EVENT, closeMenu)
+})
 </script>
