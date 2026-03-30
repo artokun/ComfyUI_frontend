@@ -225,16 +225,20 @@ function onBranchSelectorCreated(this: LGraphNode) {
     return idx >= 0 ? idx : 0
   }
 
+  function updateOutputLabel() {
+    const output = node.outputs[0]
+    if (output) {
+      const typeName = String(output.type ?? '*')
+      output.label = typeName === '*' ? 'ANY' : typeName
+    }
+    app.canvas?.setDirty(true, true)
+  }
+
   // Refresh on connection changes (add/remove inputs)
   this.onConnectionsChange = useChainCallback(this.onConnectionsChange, () =>
     requestAnimationFrame(() => {
       syncComboSelection()
-      // Mirror the resolved type to the output label
-      const output = node.outputs[0]
-      if (output) {
-        const typeName = String(output.type ?? '*')
-        output.label = typeName === '*' ? 'ANY' : typeName
-      }
+      updateOutputLabel()
     })
   )
 
@@ -263,6 +267,24 @@ function onBranchSelectorCreated(this: LGraphNode) {
       if (restoredIdx >= 0) {
         selectedInputIndex = connected[restoredIdx].index
       }
+
+      // Re-trigger MatchType after configure to restore input/output
+      // types and dot colors from connected links
+      requestAnimationFrame(() => {
+        for (let i = 0; i < node.inputs.length; i++) {
+          const inp = node.inputs[i]
+          if (inp?.link) {
+            node.onConnectionsChange?.(
+              1, // LiteGraph.INPUT
+              i,
+              true,
+              node.graph?.links?.[inp.link],
+              inp
+            )
+          }
+        }
+        updateOutputLabel()
+      })
     }
   )
 
