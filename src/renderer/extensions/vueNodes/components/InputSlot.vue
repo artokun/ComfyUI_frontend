@@ -31,42 +31,55 @@
       @click="onClick"
       @dblclick="onDoubleClick"
       @pointerdown="onPointerDown"
-      @contextmenu.stop.prevent="startRename"
+      @contextmenu.stop.prevent="showSlotMenu"
     />
 
     <!-- Slot Name -->
     <div class="flex h-full min-w-0 items-center">
-      <input
-        v-if="isRenaming"
-        ref="renameInputRef"
-        v-model="renameValue"
-        class="m-0 w-full truncate border-none bg-transparent p-0 text-[length:inherit] leading-[inherit] text-node-component-slot-text outline-none"
-        @blur="finishRename"
-        @keydown.enter.prevent="finishRename"
-        @keydown.escape.prevent="cancelRename"
-        @click.stop
-        @pointerdown.stop
-      />
-      <span
-        v-else-if="!props.dotOnly && !hasNoLabel"
-        :class="
-          cn(
-            'truncate text-node-component-slot-text hover:text-node-component-slot-text-highlight',
-            hasError && 'font-medium text-error'
-          )
-        "
+      <EditableText
+        v-if="!props.dotOnly && !hasNoLabel"
+        :model-value="displayLabel"
+        :is-editing="isRenaming"
+        label-class="truncate text-node-component-slot-text hover:text-node-component-slot-text-highlight"
+        @edit="handleRenameEdit"
+        @cancel="isRenaming = false"
         @dblclick.stop="startRename"
+      />
+    </div>
+
+    <!-- Slot context menu -->
+    <div
+      v-if="showMenu"
+      ref="menuRef"
+      class="border-border bg-popover fixed z-50 min-w-32 rounded-md border p-1 shadow-md"
+      :style="{ left: menuPos.x + 'px', top: menuPos.y + 'px' }"
+      @click.stop
+      @contextmenu.stop.prevent
+    >
+      <button
+        class="text-popover-foreground hover:bg-accent flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-sm"
+        @click="handleMenuRename"
       >
-        {{ displayLabel }}
-      </span>
+        {{ t('g.rename') }}
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onErrorCaptured, ref, watchEffect } from 'vue'
+import {
+  computed,
+  onBeforeUnmount,
+  onErrorCaptured,
+  onMounted,
+  ref,
+  watchEffect
+} from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 
+import { useI18n } from 'vue-i18n'
+
+import EditableText from '@/components/common/EditableText.vue'
 import { useErrorHandling } from '@/composables/useErrorHandling'
 import type { INodeSlot } from '@/lib/litegraph/src/litegraph'
 import { NodeSlotType } from '@/lib/litegraph/src/types/globalEnums'
@@ -93,6 +106,7 @@ interface InputSlotProps {
 }
 
 const props = defineProps<InputSlotProps>()
+const { t } = useI18n()
 
 const labelOverride = ref<string | null>(null)
 const displayLabel = computed(
@@ -165,45 +179,52 @@ const { onClick, onDoubleClick, onPointerDown } = useSlotLinkInteraction({
 
 // ── Inline rename ─────────────────────────────────────────────
 const isRenaming = ref(false)
-const renameValue = ref('')
-const renameInputRef = ref<HTMLInputElement | null>(null)
 
 function startRename() {
   if (props.slotData.nameLocked) return
-  renameValue.value = displayLabel.value
   isRenaming.value = true
-  nextTick(() => {
-    renameInputRef.value?.select()
-  })
 }
 
-let renameCommitted = false
+function handleRenameEdit(newLabel: string) {
+  isRenaming.value = false
+  const trimmed = newLabel.trim()
+  if (!trimmed || trimmed === displayLabel.value) return
 
-function finishRename() {
-  if (!isRenaming.value || renameCommitted) return
-  renameCommitted = true
-
-  const newLabel = renameValue.value.trim()
   const node = app.canvas?.graph?.getNodeById(props.nodeId ?? '')
   const slot = node?.inputs?.[props.index]
+  if (!slot) return
 
-  if (newLabel && newLabel !== displayLabel.value && slot) {
-    slot.label = newLabel
-    labelOverride.value = newLabel
-    node?.graph?.trigger('node:slot-label:changed', {
-      nodeId: node.id,
-      slotType: NodeSlotType.INPUT
-    })
-    app.canvas?.setDirty(true, true)
-  }
-
-  nextTick(() => {
-    isRenaming.value = false
-    renameCommitted = false
+  slot.label = trimmed
+  labelOverride.value = trimmed
+  node?.graph?.trigger('node:slot-label:changed', {
+    nodeId: node.id,
+    slotType: NodeSlotType.INPUT
   })
+  app.canvas?.setDirty(true, true)
 }
 
-function cancelRename() {
-  isRenaming.value = false
+// ── Context menu ──────────────────────────────────────────────
+const showMenu = ref(false)
+const menuPos = ref({ x: 0, y: 0 })
+const menuRef = ref<HTMLElement | null>(null)
+
+function showSlotMenu(event: MouseEvent) {
+  if (props.slotData.nameLocked) return
+  menuPos.value = { x: event.clientX, y: event.clientY }
+  showMenu.value = true
 }
+
+function handleMenuRename() {
+  showMenu.value = false
+  startRename()
+}
+
+function handleClickOutside(event: MouseEvent) {
+  if (menuRef.value && !menuRef.value.contains(event.target as Node)) {
+    showMenu.value = false
+  }
+}
+
+onMounted(() => document.addEventListener('click', handleClickOutside))
+onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
 </script>
