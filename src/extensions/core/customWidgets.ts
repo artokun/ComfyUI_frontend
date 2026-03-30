@@ -273,6 +273,7 @@ function onBranchSelectorCreated(this: LGraphNode) {
       // Re-trigger MatchType after configure to restore input/output
       // types and dot colors from connected links
       requestAnimationFrame(() => {
+        let triggered = false
         for (let i = 0; i < node.inputs.length; i++) {
           const inp = node.inputs[i]
           if (inp?.link) {
@@ -283,6 +284,13 @@ function onBranchSelectorCreated(this: LGraphNode) {
               node.graph?.links?.[inp.link],
               inp
             )
+            triggered = true
+          }
+        }
+        if (triggered) {
+          // Replace input objects so Vue sees new references for dot colors
+          for (let i = 0; i < node.inputs.length; i++) {
+            node.inputs[i] = { ...node.inputs[i] }
           }
         }
         updateOutputLabel()
