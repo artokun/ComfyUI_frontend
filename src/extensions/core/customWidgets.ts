@@ -124,6 +124,186 @@ function onCustomComboCreated(this: LGraphNode) {
   addOption(this)
 }
 
+function onBranchSelectorCreated(this: LGraphNode) {
+  this.applyToGraph = applyToGraph
+
+  this.widgets?.pop()
+  const values = shallowReactive<string[]>([])
+  const node = this
+
+  // Track selection by stable input index, not by mutable label
+  let selectedInputIndex = -1
+
+  function getConnectedInputs(): {
+    label: string
+    index: number
+    name: string
+  }[] {
+    return node.inputs
+      .slice(0, -1)
+      .map((inp, i) => ({
+        label: inp.label ?? inp.localized_name ?? inp.name,
+        index: i,
+        name: inp.name,
+        connected: inp.link != null
+      }))
+      .filter((inp) => inp.connected)
+  }
+
+  // Disambiguate duplicate labels by appending slot name
+  function buildDisplayValues(
+    connected: ReturnType<typeof getConnectedInputs>
+  ): string[] {
+    const seen = new Map<string, number>()
+    return connected.map((inp) => {
+      const count = (seen.get(inp.label) ?? 0) + 1
+      seen.set(inp.label, count)
+      return count > 1 ? `${inp.label} (${inp.name})` : inp.label
+    })
+  }
+
+  function refreshBranchValues() {
+    const connected = getConnectedInputs()
+    const next = buildDisplayValues(connected)
+    values.splice(0, values.length, ...next)
+  }
+
+  const comboWidget = this.addWidget('combo', 'branch', '', () => {}, {
+    values
+  })
+
+  // Track the selected input index when combo value changes
+  const origCallback = comboWidget.callback
+  comboWidget.callback = (v: string) => {
+    const connected = getConnectedInputs()
+    const displayValues = buildDisplayValues(connected)
+    const displayIdx = displayValues.indexOf(v)
+    if (displayIdx >= 0) selectedInputIndex = connected[displayIdx].index
+    origCallback?.(v)
+  }
+
+  // Live getter so Vue dropdowns always read fresh labels
+  Object.defineProperty(comboWidget.options, 'values', {
+    get: () => {
+      const connected = getConnectedInputs()
+      const live = buildDisplayValues(connected)
+      if (
+        live.length !== values.length ||
+        live.some((v, i) => v !== values[i])
+      ) {
+        values.splice(0, values.length, ...live)
+      }
+      return values
+    },
+    configurable: true,
+    enumerable: true
+  })
+
+  function syncComboSelection() {
+    if (app.configuringGraph) return
+    const connected = getConnectedInputs()
+    const displayValues = buildDisplayValues(connected)
+    values.splice(0, values.length, ...displayValues)
+
+    // Restore selection by stable index
+    const connIdx = connected.findIndex(
+      (inp) => inp.index === selectedInputIndex
+    )
+    if (connIdx >= 0) {
+      comboWidget.value = displayValues[connIdx]
+      return
+    }
+    comboWidget.value = displayValues[0] ?? ''
+    if (connected.length > 0) selectedInputIndex = connected[0].index
+    comboWidget.callback?.(comboWidget.value)
+  }
+
+  // Serialize by stable index within connected inputs
+  comboWidget.serializeValue = () => {
+    const connected = getConnectedInputs()
+    const idx = connected.findIndex((inp) => inp.index === selectedInputIndex)
+    return idx >= 0 ? idx : 0
+  }
+
+  function updateOutputLabel() {
+    const output = node.outputs[0]
+    if (!output) return
+    const typeName = String(output.type ?? '*')
+    output.label = typeName === '*' ? 'ANY' : typeName
+    // Replace the output object so Vue sees a new reference and
+    // re-renders SlotConnectionDot with the updated type/color
+    node.outputs[0] = { ...output }
+    app.canvas?.setDirty(true, true)
+  }
+
+  // Refresh on connection changes (add/remove inputs)
+  // MatchType handler runs first in the chain and sets output.type,
+  // so we can read it synchronously here.
+  this.onConnectionsChange = useChainCallback(this.onConnectionsChange, () => {
+    syncComboSelection()
+    updateOutputLabel()
+  })
+
+  // Restore renamed labels and hydrate selectedInputIndex after configure
+  this.onConfigure = useChainCallback(
+    this.onConfigure,
+    (data: {
+      inputs?: Array<{ label?: string; name: string }>
+      widgets_values?: unknown[]
+    }) => {
+      if (data?.inputs) {
+        for (const serializedInput of data.inputs) {
+          if (!serializedInput.label) continue
+          const match = node.inputs.find(
+            (inp) => inp.name === serializedInput.name
+          )
+          if (match) match.label = serializedInput.label
+        }
+      }
+      refreshBranchValues()
+
+      // Hydrate selectedInputIndex from restored comboWidget.value
+      const connected = getConnectedInputs()
+      const displayValues = buildDisplayValues(connected)
+      const restoredIdx = displayValues.indexOf(`${comboWidget.value}`)
+      if (restoredIdx >= 0) {
+        selectedInputIndex = connected[restoredIdx].index
+      }
+
+      // Re-trigger MatchType after configure to restore input/output
+      // types and dot colors from connected links
+      requestAnimationFrame(() => {
+        let triggered = false
+        for (let i = 0; i < node.inputs.length; i++) {
+          const inp = node.inputs[i]
+          if (inp?.link) {
+            node.onConnectionsChange?.(
+              1, // LiteGraph.INPUT
+              i,
+              true,
+              node.graph?.links?.[inp.link],
+              inp
+            )
+            triggered = true
+          }
+        }
+        if (triggered) {
+          // Replace input objects so Vue sees new references for dot colors
+          for (let i = 0; i < node.inputs.length; i++) {
+            node.inputs[i] = { ...node.inputs[i] }
+          }
+        }
+        updateOutputLabel()
+      })
+    }
+  )
+
+  // No getSlotMenuOptions override — default LiteGraph menu already
+  // provides Disconnect/Rename/Remove for autogrow inputs.
+
+  refreshBranchValues()
+}
+
 function onCustomIntCreated(this: LGraphNode) {
   const valueWidget = this.widgets?.[0]
   if (!valueWidget) return
@@ -226,6 +406,11 @@ app.registerExtension({
       nodeType.prototype.onNodeCreated = useChainCallback(
         nodeType.prototype.onNodeCreated,
         onCustomComboCreated
+      )
+    else if (nodeData?.name === 'BranchNode')
+      nodeType.prototype.onNodeCreated = useChainCallback(
+        nodeType.prototype.onNodeCreated,
+        onBranchSelectorCreated
       )
     else if (nodeData?.name === 'PrimitiveInt')
       nodeType.prototype.onNodeCreated = useChainCallback(

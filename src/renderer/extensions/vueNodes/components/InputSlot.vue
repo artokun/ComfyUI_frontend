@@ -2,10 +2,9 @@
   <div v-if="renderError" class="node-error p-1 text-xs text-red-500">⚠️</div>
   <div
     v-else
-    v-tooltip.left="tooltipConfig"
     :class="
       cn(
-        'lg-slot lg-slot--input group m-0 flex items-center rounded-r-lg',
+        'lg-slot lg-slot--input group/slot m-0 flex items-center rounded-r-lg',
         'cursor-crosshair',
         dotOnly ? 'lg-slot--dot-only' : 'pr-6',
         {
@@ -20,6 +19,7 @@
     <!-- Connection Dot -->
     <SlotConnectionDot
       ref="connectionDotRef"
+      v-tooltip.left="tooltipConfig"
       :class="
         cn(
           'w-3 -translate-x-1/2',
@@ -31,40 +31,44 @@
       @click="onClick"
       @dblclick="onDoubleClick"
       @pointerdown="onPointerDown"
+      @contextmenu.stop.prevent="showSlotMenu"
     />
 
     <!-- Slot Name -->
     <div class="flex h-full min-w-0 items-center">
-      <span
+      <EditableText
         v-if="!props.dotOnly && !hasNoLabel"
-        :class="
-          cn(
-            'truncate text-node-component-slot-text',
-            hasError && 'font-medium text-error'
-          )
-        "
-      >
-        {{
-          slotData.label ||
-          slotData.localized_name ||
-          (slotData.name ?? `Input ${index}`)
-        }}
-      </span>
+        :model-value="displayLabel"
+        :is-editing="isRenaming"
+        label-class="truncate text-node-component-slot-text hover:text-node-component-slot-text-highlight"
+        @edit="handleRenameEdit"
+        @cancel="isRenaming = false"
+        @dblclick.stop="startRename"
+      />
     </div>
+
+    <!-- Slot context menu (reuses PrimeVue ContextMenu for consistency) -->
+    <ContextMenu ref="slotContextMenu" :model="slotMenuItems" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onErrorCaptured, ref, watchEffect } from 'vue'
+import ContextMenu from 'primevue/contextmenu'
+import { computed, onErrorCaptured, ref, watch, watchEffect } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 
+import { useI18n } from 'vue-i18n'
+
+import EditableText from '@/components/common/EditableText.vue'
 import { useErrorHandling } from '@/composables/useErrorHandling'
 import type { INodeSlot } from '@/lib/litegraph/src/litegraph'
+import { NodeSlotType } from '@/lib/litegraph/src/types/globalEnums'
 import { useSlotLinkDragUIState } from '@/renderer/core/canvas/links/slotLinkDragUIState'
 import { getSlotKey } from '@/renderer/core/layout/slots/slotIdentifier'
 import { useNodeTooltips } from '@/renderer/extensions/vueNodes/composables/useNodeTooltips'
 import { useSlotElementTracking } from '@/renderer/extensions/vueNodes/composables/useSlotElementTracking'
 import { useSlotLinkInteraction } from '@/renderer/extensions/vueNodes/composables/useSlotLinkInteraction'
+import { app } from '@/scripts/app'
 import { cn } from '@/utils/tailwindUtil'
 
 import SlotConnectionDot from './SlotConnectionDot.vue'
@@ -82,6 +86,23 @@ interface InputSlotProps {
 }
 
 const props = defineProps<InputSlotProps>()
+const { t } = useI18n()
+
+const labelOverride = ref<string | null>(null)
+// Clear override when the underlying slot label changes externally
+watch(
+  () => props.slotData.label,
+  () => {
+    labelOverride.value = null
+  }
+)
+const displayLabel = computed(
+  () =>
+    labelOverride.value ||
+    props.slotData.label ||
+    props.slotData.localized_name ||
+    (props.slotData.name ?? `Input ${props.index}`)
+)
 
 const hasNoLabel = computed(
   () =>
@@ -142,4 +163,46 @@ const { onClick, onDoubleClick, onPointerDown } = useSlotLinkInteraction({
   index: props.index,
   type: 'input'
 })
+
+// ── Inline rename ─────────────────────────────────────────────
+const isRenaming = ref(false)
+
+function startRename() {
+  if (props.slotData.nameLocked) return
+  isRenaming.value = true
+}
+
+function handleRenameEdit(newLabel: string) {
+  isRenaming.value = false
+  const trimmed = newLabel.trim()
+  if (!trimmed || trimmed === displayLabel.value) return
+
+  const node = app.canvas?.graph?.getNodeById(props.nodeId ?? '')
+  const slot = node?.inputs?.[props.index]
+  if (!slot || !node?.graph) return
+
+  node.graph.beforeChange()
+  slot.label = trimmed
+  labelOverride.value = trimmed
+  node.graph.trigger('node:slot-label:changed', {
+    nodeId: node.id,
+    slotType: NodeSlotType.INPUT
+  })
+  node.graph.afterChange()
+  app.canvas?.setDirty(true, true)
+}
+
+// ── Context menu ──────────────────────────────────────────────
+const slotContextMenu = ref<InstanceType<typeof ContextMenu> | null>(null)
+const slotMenuItems = computed(() => [
+  {
+    label: t('g.rename'),
+    command: () => startRename()
+  }
+])
+
+function showSlotMenu(event: MouseEvent) {
+  if (props.slotData.nameLocked) return
+  slotContextMenu.value?.show(event)
+}
 </script>
