@@ -227,7 +227,15 @@ function onBranchSelectorCreated(this: LGraphNode) {
 
   // Refresh on connection changes (add/remove inputs)
   this.onConnectionsChange = useChainCallback(this.onConnectionsChange, () =>
-    requestAnimationFrame(() => syncComboSelection())
+    requestAnimationFrame(() => {
+      syncComboSelection()
+      // Mirror the resolved type to the output label
+      const output = node.outputs[0]
+      if (output) {
+        const typeName = String(output.type ?? '*')
+        output.label = typeName === '*' ? 'ANY' : typeName
+      }
+    })
   )
 
   // Restore renamed labels and hydrate selectedInputIndex after configure
