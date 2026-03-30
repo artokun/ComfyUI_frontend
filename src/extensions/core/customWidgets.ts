@@ -230,11 +230,9 @@ function onBranchSelectorCreated(this: LGraphNode) {
     if (!output) return
     const typeName = String(output.type ?? '*')
     output.label = typeName === '*' ? 'ANY' : typeName
-    // Trigger Vue reactivity for the output slot so dot color re-renders
-    node.graph?.trigger('node:slot-label:changed', {
-      nodeId: node.id,
-      slotType: 2 // NodeSlotType.OUTPUT
-    })
+    // Replace the output object so Vue sees a new reference and
+    // re-renders SlotConnectionDot with the updated type/color
+    node.outputs[0] = { ...output }
     app.canvas?.setDirty(true, true)
   }
 
